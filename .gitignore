@@ -1,0 +1,20 @@
+# General .gitignore
+# by Paul "pLesur" Lesur
+# paul.lesur59@gmail.com
+
+# general
+build/*
+doc/*
+
+# c/c++
+*.out
+*.o
+
+# python
+*.pyc
+__pycache__/
+
+# vim
+tags
+.ycm_extra_conf.py*
+*.swp 

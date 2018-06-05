@@ -1,0 +1,11 @@
+CMAKE_MINIMUM_REQUIRED (VERSION 3.0)
+PROJECT(secft)
+SET(PROTOBUF_LIBRARY "protobuf")
+add_definitions(-std=c++17)
+link_directories(${PROJECT_BINARY_DIR}/proto)
+include_directories(${PROJECT_BINARY_DIR}/proto)
+include_directories(${PROJECT_SOURCE_DIR}/include)
+
+ADD_SUBDIRECTORY(proto)
+ADD_SUBDIRECTORY(server)
+ADD_SUBDIRECTORY(client)

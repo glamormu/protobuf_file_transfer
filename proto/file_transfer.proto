@@ -1,0 +1,124 @@
+package secft.proto.file_transfer;
+
+enum Status
+{
+    STATUS_UNKNOWN             = 0;
+    STATUS_SUCCESS             = 1;
+    STATUS_INVALID_REQUEST     = 2;
+    STATUS_INVALID_PATH_NAME   = 3;
+    STATUS_PATH_NOT_FOUND      = 4;
+    STATUS_PATH_ALREADY_EXISTS = 5;
+    STATUS_NO_DRIVES_FOUND     = 6;
+    STATUS_DISK_FULL           = 7;
+    STATUS_ACCESS_DENIED       = 8;
+    STATUS_FILE_OPEN_ERROR     = 9;
+    STATUS_FILE_CREATE_ERROR   = 10;
+    STATUS_FILE_WRITE_ERROR    = 11;
+    STATUS_FILE_READ_ERROR     = 12;
+}
+message DriveList
+{
+    message Item
+    {
+        enum Type
+        {
+            TYPE_UNKNOWN        = 0;
+            TYPE_CDROM          = 1;
+            TYPE_REMOVABLE      = 2;
+            TYPE_FIXED          = 3;
+            TYPE_REMOTE         = 4;
+            TYPE_RAM            = 5;
+            TYPE_HOME_FOLDER    = 6;
+            TYPE_DESKTOP_FOLDER = 7;
+        }
+
+        required Type type   = 1;
+        required string path = 2;
+    }
+
+    repeated Item item = 1;
+}
+
+message FileList
+{
+    message Item
+    {
+        required string name             = 1;
+        required uint64 size             = 2;
+        required int64 modification_time = 3;
+        required bool is_directory       = 4;
+    }
+
+    repeated Item item = 1;
+}
+
+message FileListRequest
+{
+    required string path = 1;
+}
+
+message UploadRequest
+{
+    required string path = 1;
+    required bool overwrite = 2;
+}
+
+message DownloadRequest
+{
+   required string path = 1;
+}
+
+message PacketRequest
+{
+    required uint32 dummy = 1;
+}
+
+message Packet
+{
+    enum Flags
+    {
+        FLAG_ERROR        = 0;
+        FLAG_PACKET       = 1;
+        FLAG_FIRST_PACKET = 2;
+        FLAG_LAST_PACKET  = 4;
+    }
+    required uint32 flags = 1;
+    required uint64 file_size = 2;
+    required bytes data = 3;
+}
+
+message CreateDirectoryRequest
+{
+    required string path = 1;
+}
+
+message RenameRequest
+{
+    required string old_name = 1;
+    required string new_name = 2;
+}
+
+message RemoveRequest
+{
+    required string path = 1;
+}
+
+message Reply
+{
+    required Status status                = 1;
+    required FileList file_list           = 2;
+    required Packet packet                = 3;
+}
+
+message Request
+{
+    required FileListRequest file_list_request               = 1;
+    required CreateDirectoryRequest create_directory_request = 2;
+    required RenameRequest rename_request                    = 3;
+    required RemoveRequest remove_request                    = 4;
+    required DownloadRequest download_request                = 5;
+    required UploadRequest upload_request                    = 6;
+    required PacketRequest packet_request                    = 7;
+    required Packet packet                                   = 8;
+}
+
