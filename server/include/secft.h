@@ -3,5 +3,5 @@
  
 int add_fun(int a, int b);
 int test_proto();
- 
+ void test_asio();
 #endif//_so1_h_

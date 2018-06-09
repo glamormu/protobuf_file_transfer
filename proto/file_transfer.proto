@@ -1,4 +1,4 @@
-package secft.proto.file_transfer;
+package secft.proto.file_transfer_packet;
 
 enum Status
 {
@@ -112,10 +112,10 @@ message Reply
 
 message Request
 {
-    required FileListRequest file_list_request               = 1;
-    required CreateDirectoryRequest create_directory_request = 2;
-    required RenameRequest rename_request                    = 3;
-    required RemoveRequest remove_request                    = 4;
+    optional FileListRequest file_list_request               = 1;
+    optional CreateDirectoryRequest create_directory_request = 2;
+    optional RenameRequest rename_request                    = 3;
+    optional RemoveRequest remove_request                    = 4;
     required DownloadRequest download_request                = 5;
     required UploadRequest upload_request                    = 6;
     required PacketRequest packet_request                    = 7;

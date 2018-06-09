@@ -1,51 +1,36 @@
 #include <stdio.h>
-#include "file_transfer.pb.h"
 #include "secftclient.h"
+#include "secftclient_internal.h"
 #include <thread>
 #include <unistd.h>
 #include <iostream>
 #include "plog/Log.h"
 #include <string>
 #include <map>
-#include <fstream>
 #include <openssl/md5.h>
-
+#include <vector>
+#include <mutex>
 #include <sys/mman.h>
+#include "sec_client_task.h"
+
 using namespace std;
+using namespace secft::proto::file_transfer_packet;
 
-
-
-struct sec_callback{
-public:
-    sec_callback():user_data(nullptr),callback(nullptr) {
-    }
-    void* user_data;
-    secft_func_ptr callback;
-};
-
-struct stream_item{
-    string path;
-    string md5;
-    size_t offset;
-    size_t size;
-    uint8_t stream_type;
-    vector<stream_item> children;
-};
 
 map<string, sec_callback>* callback_map;
 map<string, string>* property_map;
+map<int, stream_item> stream_map;
+
 string errmsg = "";
+//vector<stream_item> task_queue;
 
-void upload_file(stream_item item, map<string, sec_variant> params){
-    //check stream
-    //open file
-    //generate packet
-    //send packet
-}
+std::mutex task_mutex;
 
-void download_file(stream_item item, map<string, sec_variant> params){
+string _server_addr;
+int _server_port;
+string _user_name;
+string _token;
 
-}
 static void __attribute__((constructor)) sec_client_init()
 {
     callback_map = new map<string, sec_callback>();
@@ -60,39 +45,26 @@ void  __attribute__((destructor)) sec_client_fini()
 {
 
 }
-static void client_thread(){
-    sec_variant msg = "In system\n";
-    if(callback_map->at(SEC_EVENT_SYSTEM).callback){
-        callback_map->at(SEC_EVENT_SYSTEM).callback(callback_map->at(SEC_EVENT_SYSTEM).user_data, msg);
-    }
-
-    sec_variant process_v = 0;
-    int process = 0;
-    while(1){
-        sleep(1);
-        process += 10;
-        if(process == 100){
-            break;
-        }
-        process_v = process;
-        if(callback_map->at(SEC_EVENT_STREAM).callback) {
-            callback_map->at(SEC_EVENT_STREAM).callback(callback_map->at(SEC_EVENT_STREAM).user_data, process_v);
-        }
-    }
-
-}
 
 bool secft_start_up(const char* addr, int port,const char* user_name,const char* token){
+    if(!(addr&&user_name&&token)) {
+        return false;
+    }
+    if(port <= 0) {
+        return false;
+    }
+    _server_addr = addr;
+    _server_port = port;
+    _user_name = user_name;
+    _token = token;
     //init log
     plog::init(plog::debug, property_map->at(SEC_PROP_LOGPATH).c_str());
     LOG_DEBUG << "secft client start up";
     //todo connect to server
-
+    //https://www.zhihu.com/question/27908489
     //start thread pool
-    std::thread client(client_thread);
-    client.detach();
     return true;
-    
+
 }
 void secft_shut_down()
 {
@@ -111,7 +83,12 @@ int secft_handle_event(const char* event, secft_func_ptr handler, void* user_dat
         callback_map->at(SEC_EVENT_STREAM).callback = handler;
         callback_map->at(SEC_EVENT_STREAM).user_data = user_data;
     }
-
+    else if(!strcmp(SEC_EVENT_PROCESS, event)) {
+        sec_callback process_callback;
+        process_callback.callback = handler;
+        process_callback.user_data = user_data;
+        callback_map->insert(pair<string,sec_callback>(SEC_EVENT_PROCESS, process_callback));
+    }
     return 0;
 }
 int sceft_set_property(const char* prop, const char* value)
@@ -133,14 +110,13 @@ const char *secft_err_msg(void)
     return errmsg.c_str();
 }
 
-
+//todo return task id
 int secft_start_stream(const char *path, map<string, sec_variant> params)
 {
     //generate stream item
-
     int file_descript = open(path, O_RDONLY);
     if(file_descript < 0) {
-        std::cerr << "no file";
+        std::cerr << "no such file\n";
         return -1;
     }
     struct stat statbuf;
@@ -150,26 +126,42 @@ int secft_start_stream(const char *path, map<string, sec_variant> params)
         close(file_descript);
         return -1;
     }
-    size_t file_size =  statbuf.st_size;
-    char* file_buffer = (char*)mmap(0, file_size, PROT_READ, MAP_SHARED, file_descript, 0);
-    unsigned char result[MD5_DIGEST_LENGTH];
-    MD5((unsigned char*) file_buffer, file_size, result);
-    munmap(file_buffer, file_size);
-
+    //check params
+    auto it_find = params.find(SEC_STREAM_TYPE);
+    if(it_find != params.end()) {
+        LOG_DEBUG << "get " << SEC_STREAM_TYPE;
+    }
+    else {
+        std::cerr << "no stream type";
+        return -1;
+    }
     stream_item item;
     item.path = path;
-    item.size = file_size;
-    item.md5 = result;
-    item.offset = 0;
-    item.stream_type = START_UPLOAD;
-
-    std::cout << item.path << ": " << item.md5 << std::endl;
-
+    if(S_ISDIR(statbuf.st_mode)) {
+        LOG_DEBUG << path << " is a Dir";
+        //todo upload or download dir
+        return -1;
+    }
+    else {
+        size_t file_size =  statbuf.st_size;
+        char* file_buffer = (char*)mmap(0, file_size, PROT_READ, MAP_SHARED, file_descript, 0);
+        unsigned char result[MD5_DIGEST_LENGTH];
+        MD5((unsigned char*) file_buffer, file_size, result);
+        munmap(file_buffer, file_size);
+        item.size = file_size;
+        memcpy(item.md5, result, MD5_DIGEST_LENGTH);
+        item.offset = 0;
+        item.stream_status = std::get<int>(params[SEC_STREAM_TYPE]);
+    }
+    map<string, sec_variant> config;
+    item.config = config;
     close(file_descript);
-    return 0;
+    return sec_scheduler::initance()->add_task(item);
 }
 
-void secft_stop_stream(const char *path, sec_variant params)
+void secft_cancel_stream(int stream_id, map<string,sec_variant> params)
 {
-
+    //1. stop the loop
+    sec_scheduler::initance()->stop_task(stream_id);
+    //2. send cancel request
 }

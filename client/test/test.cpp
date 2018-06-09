@@ -2,52 +2,149 @@
 /*
  * bool secft_startup();//start up sdk
  * void shut_down(); //shut down the sdk
- * int secft_handle_event(const char* event_path, sec_funt_ptr handler, 
+ * int secft_handle_event(const char* event_path, sec_funt_ptr handler,
  *			void* user_data);
- * 
+ *
  */
 #include <iostream>
 #include "secftclient.h"
 #include "plog/Log.h"
 #include <variant>
 
-int user_system_callback(void* user_data, sec_variant data){
-    std::cout << "In system\n";
-    if(holds_alternative<string>(data)){
-        std::cerr << get<string>(data);
+int user_system_callback(void* user_data, std::map<string,sec_variant> data){
+    string msg_str;
+    std::map<string,sec_variant>::iterator iter = data.find("system.callback.msg");
+    if(iter != data.end()){
+        if(holds_alternative<string>(iter->second)){
+            msg_str = get<string>(iter->second);
+        }
+    }
+    if(msg_str.size() != 0){
+        std::cout << msg_str <<std::endl;
     }
     return 0;
 }
-int user_stream_callback(void* user_data, sec_variant data){
-
-    if(holds_alternative<int>(data)){
-      std::cout << "uploading: " << get<int>(data) << std::endl;
+//stream added or removed
+/*
+ * data:
+ *  class MSG
+ *  class ADD
+ *  class REMOVE
+ *  class SUCESS
+ *  class FAILED
+ */
+int user_stream_callback(void* user_data, map<string,sec_variant> data){
+    std::map<string,sec_variant>::iterator iter = data.find("class");
+    if(iter == data.end()) {
+        return 0;
+    }
+    string msg_str;
+    iter = data.find("stream.callback.msg");
+    if(iter != data.end()){
+        if(holds_alternative<string>(iter->second)){
+            msg_str = get<string>(iter->second);
+        }
+    }
+    if(msg_str.size() != 0){
+        std::cout << msg_str <<std::endl;
     }
     return 0;
 }
+//stream process
+/*
+ * data:
+ *  class MSG
+ *  class UPLOAD_PROCESS
+ *  class DOWNLOAD_PROCESS
+ *  class PAUSED
+ *  class CANLSED
+ *  class RESUME
+ */
+int user_process_callback(void* user_data, map<string,sec_variant> data){
+    std::map<string,sec_variant>::iterator iter = data.find("class");
+    if(iter == data.end()) {
+        return 0;
+    }
+    int clz = get<int>(data["class"]);
+    int stream_id;
+    double process;
+    string path;
+    switch (clz) {
+    case sec_process_upload:
+        stream_id = get<int>(data["stream_id"]);
+        process = get<double>(data["process"]);
+        path = get<string>(data["path"]);
+        std::cout  << "path:" << path << std::endl
+                  << "stream id :" <<stream_id << std::endl
+                  << "process:" << process << std::endl;
+        break;
+    case sec_process_uploaded:
+        stream_id = get<int>(data["stream_id"]);
+        path = get<string>(data["path"]);
+        std::cout  << "path:" << path << std::endl
+                  << "stream id :" <<stream_id << std::endl
+                  << "is uploaded!"<< std::endl;
+        break;
 
+    default:
+        std::cerr << "in defaulet\n";
+        break;
+    };
+    return 0;
+}
 
 int main(int argc, char **argv)
 {
-	char addr[] = {"cvzhang.cn\0"};
-    char username[] = {"vergil\0"};
-    char token[] = {"token\0"};
+	string addr = "127.0.0.1";
+    string username = "test";
+    string token = "token";
+    int port = 10086;
 
-    char user_data_system[] = {"hello\0"};
-    secft_handle_event(SEC_EVENT_SYSTEM, user_system_callback, user_data_system);
-    char user_data_stream[] = {"world\0"};
-    secft_handle_event(SEC_EVENT_STREAM, user_stream_callback, user_data_stream);
+    //register callbacks
+    //1. System callback. Notify system events
+    secft_handle_event(SEC_EVENT_SYSTEM, user_system_callback, nullptr);
+    //2. Stream callbacks. Notify stream events
+    secft_handle_event(SEC_EVENT_STREAM, user_stream_callback, nullptr);
+    //3. Process callbacks. Notify process events
+    secft_handle_event(SEC_EVENT_PROCESS, user_process_callback, nullptr);
 
-	if(!secft_start_up(addr, 8080, username, token)) {
-		LOG_DEBUG << "secft client startup error";
+	if(!secft_start_up(addr.c_str(), port,
+                username.c_str(), token.c_str())) {
+        //TODO: get error message
+        std::cerr << "client startup error";
 		return 1;
 	}
 #ifdef DEBUG
-	LOG_DEBUG << "Connected the file server!";
+    std::cerr << "Connected the file server!\n";
 #endif
+
+    //Test cases: Start upload without parameters
     map<string, sec_variant> test;
-    secft_start_stream("test", test);
-    secft_start_stream("/home/zhang/Downloads/zImage", test);
+    test[SEC_STREAM_TYPE] = START_UPLOAD;
+    //Test case one: No such file
+    int id = secft_start_stream("test", test);
+    if(id == -1) {
+        std::cerr << "add task failed\n";
+    }
+    //Test cases: normal file
+    id = secft_start_stream("/home/zhang/Downloads/zImage", test);
+    if(id == -1) {
+        std::cerr << "add task failed\n";
+    }
+    secft_cancel_stream(id, test);
+
+    id = secft_start_stream("/home/zhang/Downloads/u-boot.bin", test);
+    if(id == -1) {
+        std::cerr << "add task failed\n";
+    }
+
+    id = secft_start_stream("/home/zhang/Downloads/vfb2-master.zip", test);
+    if(id == -1) {
+        std::cerr << "add task failed\n";
+    }
+    //Test case: cancel upload without parameters
+
+
 	//上传文件测试(单文件)
 
     //1. 上传全量

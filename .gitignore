@@ -9,7 +9,10 @@ doc/*
 # c/c++
 *.out
 *.o
-
+cmake-build-debug/
+CMakeLists.txt.user
+protobuf_file_transfer.kdev4
+ref/
 # python
 *.pyc
 __pycache__/
