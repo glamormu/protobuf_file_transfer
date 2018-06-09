@@ -1,15 +1,9 @@
 // test/test.c
-/*
- * bool secft_startup();//start up sdk
- * void shut_down(); //shut down the sdk
- * int secft_handle_event(const char* event_path, sec_funt_ptr handler,
- *			void* user_data);
- *
- */
+
 #include <iostream>
 #include "secftclient.h"
 #include "plog/Log.h"
-#include <variant>
+
 
 int user_system_callback(void* user_data, std::map<string,sec_variant> data){
     string msg_str;
@@ -115,7 +109,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 #ifdef DEBUG
-    std::cerr << "Connected the file server!\n";
+    std::cerr << "client startup ok!\n";
 #endif
 
     //Test cases: Start upload without parameters
@@ -131,6 +125,7 @@ int main(int argc, char **argv)
     if(id == -1) {
         std::cerr << "add task failed\n";
     }
+    usleep(10000);
     secft_cancel_stream(id, test);
 
     id = secft_start_stream("/home/zhang/Downloads/u-boot.bin", test);
@@ -177,7 +172,6 @@ int main(int argc, char **argv)
 //    secft_stop_stream(path, params, user_callback);
 
     //todo 文件夹的上传下载
-    while(1){
-    }
+    sleep(5);
 	return 0;
 }

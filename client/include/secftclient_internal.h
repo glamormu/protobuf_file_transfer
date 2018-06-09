@@ -1,6 +1,7 @@
 #ifndef _secftclient_internal_h
 #define _secftclient_internal_h
 #include <fstream>
+#include "plog/Log.h"
 #include "sec_asio_common.h"
 #include "sec_file_client.h"
 #include "file_transfer.pb.h"

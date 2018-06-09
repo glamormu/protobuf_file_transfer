@@ -4,7 +4,6 @@
 #include <thread>
 #include <unistd.h>
 #include <iostream>
-#include "plog/Log.h"
 #include <string>
 #include <map>
 #include <openssl/md5.h>

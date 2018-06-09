@@ -66,6 +66,9 @@ int sec_scheduler::add_task(stream_item item)
     sec_task_map[stream_id] = cell;
     res = stream_id;
     task_mutex.unlock();
+#ifdef DEBUG
+    LOG_DEBUG << "add task and stream id is " << stream_id;
+#endif
     return res;
 }
 
@@ -101,6 +104,7 @@ void secft_cell::download_file()
 void secft_cell::stop()
 {
     this->item.stream_status = UPLOAD_CANCELED;
+    std::cout << this->item.path << ":canceled\n";
 }
 
 void secft_cell::_upload()
@@ -123,10 +127,19 @@ void secft_cell::_upload()
         }
         return;
     }
+#ifdef DEBUG
+        LOG_DEBUG << this->item.path << " START UPLOAD";
+#endif
     while (this->item.offset < this->item.size) {
         if(this->item.stream_status == UPLOAD_CANCELED ||
             this->item.stream_status == UPLOAD_PAUSED ||
             this->item.stream_status == UPLOADED){
+#ifdef DEBUG
+            if(this->item.stream_status == UPLOAD_CANCELED){
+            LOG_DEBUG << this->item.path << " Exit loop:"
+                      << "stream_status == UPLOAD_CANCELED";
+            }
+#endif
             break;
         }
         else {
@@ -157,6 +170,9 @@ void secft_cell::_upload()
     }
     if(this->item.offset == this->item.size){
         this->item.stream_status = UPLOADED;
+#ifdef DEBUG
+        LOG_DEBUG << this->item.path << " UPLOAD_SUCESS";
+#endif
         map<string, sec_variant> process_callback_data;
         process_callback_data["class"] = sec_process_uploaded;
         process_callback_data["path"] = this->item.path;
