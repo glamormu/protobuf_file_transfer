@@ -6,13 +6,16 @@ void sec_scheduler::scheduler()
 {
     while(1) {
         if(task_count < max_task_num) {
+            task_mutex.lock();
             for(auto iter = sec_task_map.begin(); iter != sec_task_map.end(); ++iter) {
                 switch (iter->second.item.stream_status) {
                 case START_UPLOAD:
+                    iter->second.item.stream_status = UPLOADING;
                     iter->second.upload_file();
                     increase_task_count();
                     break;
                 case START_DOWNLOAD:
+                    iter->second.item.stream_status = DOWNLOADING;
                     iter->second.download_file();
                     increase_task_count();
                     break;
@@ -20,6 +23,7 @@ void sec_scheduler::scheduler()
                     break;
                 }
             }
+            task_mutex.unlock();
         }
     }
 }
@@ -41,20 +45,6 @@ void sec_scheduler::decrease_task_count()
 int sec_scheduler::add_task(stream_item item)
 {
     int res = -1;
-    /*
-    for(map<int, secft_cell>::iterator iter = sec_task_map.begin();
-        iter != sec_task_map.end(); ++iter) {
-        int i = 0;
-        for(;i < MD5_DIGEST_LEGTH; ++i) {
-            if(iter->second.item.md5[i] != item.md5[i]) {
-                break;
-            }
-        }
-        if(i == MD5_DIGEST_LENGTH) {
-            return -2; //
-        }
-    }
-    */
     item.stream_status = START_UPLOAD;
     task_mutex.lock();
     do {
@@ -128,7 +118,7 @@ void secft_cell::_upload()
         return;
     }
 #ifdef DEBUG
-        LOG_DEBUG << this->item.path << " START UPLOAD";
+        LOG_DEBUG << "stream id:"<< this->item.stream_id << this->item.path << " START UPLOAD";
 #endif
     while (this->item.offset < this->item.size) {
         if(this->item.stream_status == UPLOAD_CANCELED ||
@@ -136,8 +126,10 @@ void secft_cell::_upload()
             this->item.stream_status == UPLOADED){
 #ifdef DEBUG
             if(this->item.stream_status == UPLOAD_CANCELED){
-            LOG_DEBUG << this->item.path << " Exit loop:"
+
+                LOG_DEBUG << this->item.path << " Exit loop:"
                       << "stream_status == UPLOAD_CANCELED";
+
             }
 #endif
             break;

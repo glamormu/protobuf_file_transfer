@@ -121,19 +121,19 @@ int main(int argc, char **argv)
         std::cerr << "add task failed\n";
     }
     //Test cases: normal file
-    id = secft_start_stream("/home/zhang/Downloads/zImage", test);
+    id = secft_start_stream("/home/zhang/Pictures/WHU/DSC_0944.JPG", test);
     if(id == -1) {
         std::cerr << "add task failed\n";
     }
     usleep(10000);
     secft_cancel_stream(id, test);
 
-    id = secft_start_stream("/home/zhang/Downloads/u-boot.bin", test);
+    id = secft_start_stream("/home/zhang/Pictures/WHU/DSC_0945.JPG", test);
     if(id == -1) {
         std::cerr << "add task failed\n";
     }
 
-    id = secft_start_stream("/home/zhang/Downloads/vfb2-master.zip", test);
+    id = secft_start_stream("/home/zhang/Pictures/WHU/DSC_0947.JPG", test);
     if(id == -1) {
         std::cerr << "add task failed\n";
     }
