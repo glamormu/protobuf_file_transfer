@@ -183,6 +183,9 @@ Request secft_cell::get_packet()
 {
     Request request;
     ifstream infile;
+    request.mutable_packet()->set_user_name(_user_name);
+    request.mutable_packet()->set_token(_token);
+
     infile.open(this->item.path, ios::in|ios::binary);
     if(!infile.is_open()){
         std::cerr << "open failed";

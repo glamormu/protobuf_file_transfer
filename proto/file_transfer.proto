@@ -85,6 +85,8 @@ message Packet
     required uint32 flags = 1;
     required uint64 file_size = 2;
     required bytes data = 3;
+    required string user_name = 4;
+    required string token = 5;
 }
 
 message CreateDirectoryRequest
