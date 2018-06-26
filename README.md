@@ -1,7 +1,7 @@
-CMake Protobuf Example
+Protobuf file transfer
 ======================
 
-Minimal example of using CMake to manage C++ project with protobuf.
+Filetransfer with protobuf.
 
 Build
 ======================
