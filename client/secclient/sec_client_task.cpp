@@ -218,6 +218,7 @@ Request secft_cell::get_packet()
 
     request.mutable_download_request()->set_path("");
     request.mutable_packet_request()->set_dummy(1);
+    infile.close();
     return request;
 }
 

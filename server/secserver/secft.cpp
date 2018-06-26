@@ -12,6 +12,13 @@
 #include "plog/Log.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "file_transfer.pb.h"
+#include "secft.h"
+#include <map>
+#include <boost/algorithm/string.hpp>
+#include <iostream>
+#include <fstream>
+#include <libgen.h>
+#include <filesystem>
 using namespace secft::proto::file_transfer_packet;
 using namespace boost::asio;
 using namespace boost::posix_time;
@@ -25,8 +32,10 @@ typedef std::vector<client_ptr> array;
 array clients;
 
 boost::recursive_mutex cs;
-
+std::map<string, string> username_token_map;
 const int max_msg = 4096*2;
+
+bool auth_username_token(string username, string token);
 /*
  * 1. Get auth packet; verify token
  * 2. Get data packet: write data
@@ -65,9 +74,8 @@ struct talk_to_client : public boost::enable_shared_from_this<talk_to_client>
         }
     }
     bool timed_out() const {
-        //ptime now = microsec_clock::local_time();
-        //long long ms = (now - last_ping).total_milliseconds();
-        long long ms  = 0;
+        ptime now = microsec_clock::local_time();
+        long long ms = (now - last_packet).total_milliseconds();
         return ms > 5000 ;
     }
 private:
@@ -102,6 +110,9 @@ private:
             request.ParseFromCodedStream(&coded_input);
             //Once the embedded message has been parsed, PopLimit() is called to undo the limit
             coded_input.PopLimit(msgLimit);
+            std::cout << request.packet().user_name();
+            std::cout << request.packet().token();
+            client_req = request;
             //Print the message
         }
 
@@ -111,12 +122,72 @@ private:
         if(already_read_ <= 0) {
             return;
         }
-        //Step 0. generate packet
 
-
+        last_packet = microsec_clock::local_time();
         //Step 1. handle auth
-
+        if(auth_username_token(client_req.packet().user_name(),
+                               client_req.packet().token())) {
+            LOG_DEBUG << "Auth ok: user_name is " << client_req.packet().user_name()
+                      << " token is " << client_req.packet().token();
+        }
+        else {
+            LOG_DEBUG << "Auth failed: user_name is " << client_req.packet().user_name()
+                      << " token is " << client_req.packet().token();
+            stop();
+            return;
+        }
         //Step 2. handle packet
+        string download_path = client_req.download_request().path();
+        string upload_path = client_req.upload_request().path();
+        if(download_path.size() != 0) {
+            do_download();
+        }
+        else if (upload_path.size() != 0) {
+            do_upload();
+        }
+        else{
+            LOG_DEBUG << "Invaliad packet: no upload request and download request;";
+            stop();
+        }
+    }
+    void do_download(){
+        std::cout << client_req.download_request().path();
+    }
+    void do_upload() {
+        std::filesystem::path p(client_req.upload_request().path());
+        string path = p.stem();
+        bool overwrite = client_req.upload_request().overwrite();
+        LOG_DEBUG << "upload path is " << path
+                  << " and overwrite is " << overwrite;
+        //save file
+        string root_path = "./";
+        string file_path = root_path + path;
+        std::ofstream outfile;
+        outfile.open(file_path, std::ios::out|std::ios::binary|std::ios::app);
+        if(!outfile.is_open()){
+            std::cerr << file_path <<"open failed";
+            return;
+        }
+        outfile.write(client_req.packet().data().c_str(), client_req.packet().data().size());
+        outfile.close();
+        //uint64_t file_size = client_req.packet().file_size();
+        int packet_flag = client_req.packet().flags();
+        switch (packet_flag) {
+        case Packet::Flags::Packet_Flags_FLAG_FIRST_PACKET:
+            std::cout << "Start recving packets";
+            break;
+        case Packet::Flags::Packet_Flags_FLAG_PACKET:
+            std::cout << "Recving packets";;
+            break;
+        case Packet::Flags::Packet_Flags_FLAG_LAST_PACKET:
+            std::cout << "Last packet";
+            stop();
+            break;
+        default:
+            break;
+        }
+
+
     }
 private:
     ip::tcp::socket sock_;
@@ -126,6 +197,7 @@ private:
     ptime last_packet;
     char data_buffer[max_msg];
     int already_read_;
+    Request client_req;
 };
 void update_clients_() {
     boost::recursive_mutex::scoped_lock lk(cs);
@@ -210,7 +282,37 @@ int add_fun(int a, int b)
 void secft_server_listening() {
 
 }
-
+bool auth_username_token(string username, string token){
+    std::map<string, string>::iterator find_iter = username_token_map.find(username);
+    if(find_iter == username_token_map.end()) {
+        LOG_DEBUG << "Can not find user: " << username;
+        return false;
+    }
+    LOG_DEBUG << "Auth " << username << " Failed";
+    return find_iter->second == token;
+}
+int secft_server_set_property(const char* prop, const char* value){
+//"SECFT_SERVER_ADD_AUTH"
+//"SECFT_SERVER_RM_AUTH"
+//"SECFT_SERVER_LOG"
+    if(prop == nullptr || value == nullptr) {
+        return -1;
+    }
+    //TODO: if statement is stupid
+    if(!strcmp(prop, SECFT_SERVER_ADD_AUTH)){
+        std::vector<std::string> strs;
+        boost::split(strs, value, boost::is_any_of(":"));
+        if(strs.size() != 2) {
+            return -1;
+        }
+        username_token_map[strs[0]] = strs[1];
+    }
+    else if(!strcmp(prop, SECFT_SERVER_ADD_AUTH)) {
+        //todo remove item
+        return 0;
+    }
+    return 0;
+}
 int secft_server_start_up(int port)
 {
     plog::init(plog::debug, "secft_server");

@@ -1,6 +1,6 @@
 PROJECT(SecFT)
 CMAKE_MINIMUM_REQUIRED (VERSION 2.6)
-SET(CMAKE_CXX_FLAGS "-g -Wall -Werror -std=c++11")
+SET(CMAKE_CXX_FLAGS "-g -Wall -Werror -std=c++17")
 
 # 添加include目录，本例头文件在./目录下，所以直接取${PROJECT_SOURCE_DIR}/
 include_directories(${PROJECT_SOURCE_DIR}/include)
