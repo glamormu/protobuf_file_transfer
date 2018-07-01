@@ -1,5 +1,5 @@
 #include "sec_client_task.h"
-
+#include <filesystem>
 int stream_id = 0;
 
 void sec_scheduler::scheduler()
@@ -45,7 +45,7 @@ void sec_scheduler::decrease_task_count()
 int sec_scheduler::add_task(stream_item item)
 {
     int res = -1;
-    item.stream_status = START_UPLOAD;
+
     task_mutex.lock();
     do {
         stream_id ++;
@@ -108,8 +108,8 @@ void secft_cell::_upload()
     //read file and generate packet
     //new connect
     ip::tcp::endpoint ep(ip::address::from_string(_server_addr), _server_port);
-    boost::shared_ptr<sec_file_client> client_ptr = sec_file_client::start(ep);
-    if(!client_ptr) {
+    sec_file_client client;
+    if(!client.connect(ep)) {
         msg = "connect error";
         system_callback_data["system.callback.msg"] = msg;
         if(callback_map->at(SEC_EVENT_SYSTEM).callback){
@@ -118,17 +118,17 @@ void secft_cell::_upload()
         return;
     }
 #ifdef DEBUG
-        LOG_DEBUG << "stream id:"<< this->item.stream_id << this->item.path << " START UPLOAD";
+    LOG_DEBUG << "stream id:"<< this->item.stream_id << this->item.path << " START UPLOAD";
 #endif
     while (this->item.offset < this->item.size) {
         if(this->item.stream_status == UPLOAD_CANCELED ||
-            this->item.stream_status == UPLOAD_PAUSED ||
-            this->item.stream_status == UPLOADED){
+                this->item.stream_status == UPLOAD_PAUSED ||
+                this->item.stream_status == UPLOADED){
 #ifdef DEBUG
             if(this->item.stream_status == UPLOAD_CANCELED){
 
                 LOG_DEBUG << this->item.path << " Exit loop:"
-                      << "stream_status == UPLOAD_CANCELED";
+                          << "stream_status == UPLOAD_CANCELED";
 
             }
 #endif
@@ -140,7 +140,35 @@ void secft_cell::_upload()
 
         map<string, sec_variant> process_callback_data;
         Request request =  get_packet();
-        if(!client_ptr->send_request(request)) {
+
+        if(!client.send_request(request)) {
+            LOG_ERROR << "send_request failed\n";
+            this->item.stream_status = UPLOAD_FAILED;
+            process_callback_data["class"] = sec_process_failed;
+            process_callback_data["path"] = this->item.path;
+            process_callback_data["stream_id"] = this->item.stream_id;
+            if(callback_map->at(SEC_EVENT_PROCESS).callback) {
+                callback_map->at(SEC_EVENT_PROCESS).callback(callback_map->at(SEC_EVENT_PROCESS).user_data, process_callback_data);
+            }
+            break;
+        }
+
+        Reply reply;
+        if(client.read_reply(reply) == 0) {
+            int reply_status = reply.status();
+            LOG_DEBUG << "reply_status:" << reply_status;
+            if(reply_status == Status::STATUS_SUCCESS){
+                process_callback_data["class"] = sec_process_upload;
+                process_callback_data["process"] = (double)((double)this->item.offset / (double)this->item.size);
+                process_callback_data["path"] = this->item.path;
+                process_callback_data["stream_id"] = this->item.stream_id;
+                if(callback_map->at(SEC_EVENT_PROCESS).callback) {
+                    callback_map->at(SEC_EVENT_PROCESS).callback(callback_map->at(SEC_EVENT_PROCESS).user_data, process_callback_data);
+                }
+                continue;
+            }
+        }
+        else {
             std::cerr << "send failed\n";
             this->item.stream_status = UPLOAD_FAILED;
             process_callback_data["class"] = sec_process_failed;
@@ -160,6 +188,7 @@ void secft_cell::_upload()
             callback_map->at(SEC_EVENT_PROCESS).callback(callback_map->at(SEC_EVENT_PROCESS).user_data, process_callback_data);
         }
     }
+
     if(this->item.offset == this->item.size){
         this->item.stream_status = UPLOADED;
 #ifdef DEBUG
@@ -177,6 +206,160 @@ void secft_cell::_upload()
 
 void secft_cell::_download()
 {
+    sec_variant msg = "start download " + this->item.remote_path;
+    LOG_DEBUG << get<string>(msg);
+    map<string, sec_variant> system_callback_data;
+    system_callback_data["system.callback.msg"] = msg;
+    if(callback_map->at(SEC_EVENT_SYSTEM).callback){
+        callback_map->at(SEC_EVENT_SYSTEM).callback(callback_map->at(SEC_EVENT_SYSTEM).user_data, system_callback_data);
+    }
+    //0. init connection
+    ip::tcp::endpoint ep(ip::address::from_string(_server_addr), _server_port);
+    sec_file_client client;
+    if(!client.connect(ep)) {
+        msg = "connect error";
+        system_callback_data["system.callback.msg"] = msg;
+        if(callback_map->at(SEC_EVENT_SYSTEM).callback){
+            callback_map->at(SEC_EVENT_SYSTEM).callback(callback_map->at(SEC_EVENT_SYSTEM).user_data, system_callback_data);
+        }
+        return;
+    }
+#ifdef DEBUG
+    LOG_DEBUG << "stream id:"<< this->item.stream_id << this->item.path << " CONNECT OK";
+#endif
+    //1. send request
+    if(check_remote_file(client) == -1) {
+        string msg_str = "Remote file error";
+        this->item.stream_status = DOWNLOAD_FAILED;
+        notify_download_failed(msg_str);
+        return;
+    }
+    //2. create file
+    create_download_file();
+    //3. recv data
+    bool continue_download = true;
+    while(item.offset < item.size && continue_download) {
+        switch (item.stream_status) {
+        case DOWNLOAD_CANCELED:
+            continue_download = false;
+            break;
+        case DOWNLOAD_FAILED:
+            continue_download = false;
+            notify_download_failed("DOWNLOAF FAILED");
+        case DOWNLOAD_PAUSED:
+            continue_download = false;
+            break;
+        default:
+            break;
+        }
+        continue_download = request_packet();
+    }
+}
+bool secft_cell::request_packet(sec_file_client& client) {
+    //send request
+    char buff[max_msg_] = {0};
+    Request request;
+    request.mutable_packet()->set_user_name(_user_name);
+    request.mutable_packet()->set_token(_token);
+    request.mutable_packet()->set_data(buff);
+    request.mutable_packet()->set_file_size(item.size);
+    request.mutable_packet()->set_flags(Packet::Flags::Packet_Flags_FLAG_PACKET);
+    request.mutable_download_request()->set_path(this->item.remote_path);
+    request.mutable_upload_request()->set_path("");
+    request.mutable_upload_request()->set_overwrite(false);
+    request.mutable_packet_request()->set_dummy(1);
+    request.mutable_packet_request()->set_offset(item.offset);
+    client.send_request(request);
+    //read packet
+    Reply reply;
+    client.read_reply(reply);
+    int packet_flag = reply.packet().flags();
+    std::ofstream outfile;
+    switch (packet_flag) {
+    case Packet::Flags::Packet_Flags_FLAG_FIRST_PACKET:
+        outfile.open(item.path, std::ios::out|std::ios::binary);
+        break;
+    case Packet::Flags::Packet_Flags_FLAG_LAST_PACKET:
+    case Packet::Flags::Packet_Flags_FLAG_PACKET:
+        outfile.open(item.path, std::ios::out|std::ios::binary|std::ios::app);
+        break;
+    default:
+        return false;
+    }
+
+    if(!outfile.is_open()){
+        LOG_ERROR << item.file_path <<"open failed";
+        return;
+    }
+    outfile.write(reply.packet().data().c_str(), reply.packet().data().size());
+    outfile.close();
+    item.offset += reply.packet().data().size();
+    //write file
+}
+void secft_cell::notify_download_failed(string msg) {
+    map<string, sec_variant> process_callback_data;
+    process_callback_data["class"] = sec_process_download;
+    process_callback_data["path"] = this->item.path;
+    process_callback_data["stream_id"] = this->item.stream_id;
+    process_callback_data["msg"] = msg;
+    if(callback_map->at(SEC_EVENT_PROCESS).callback) {
+        callback_map->at(SEC_EVENT_PROCESS).callback(callback_map->at(SEC_EVENT_PROCESS).user_data, process_callback_data);
+    }
+}
+void secft_cell::create_download_file() {
+    string root_path = "./";
+    string file_path = root_path + this->item.path;
+    std::ofstream outfile;
+    if(std::filesystem::exists(file_path)){
+        //TODO notice user and rename it
+        LOG_ERROR << "File exests!";
+        this->item.stream_status = DOWNLOAD_FAILED;
+        return;
+    }
+    outfile.open(file_path, std::ios::out|std::ios::binary);
+    if(!outfile.is_open()){
+        LOG_ERROR << file_path <<"open failed";
+        this->item.stream_status = DOWNLOAD_FAILED;
+        return;
+    }
+    item.path = file_path;
+    outfile.close();
+}
+int secft_cell::check_remote_file(sec_file_client & client){
+    char buff[max_msg_] = {0};
+    Request request;
+    request.mutable_packet()->set_user_name(_user_name);
+    request.mutable_packet()->set_token(_token);
+    request.mutable_packet()->set_data(buff);
+    request.mutable_packet()->set_file_size(0);
+    request.mutable_packet()->set_flags(Packet::Flags::Packet_Flags_FLAG_FIRST_PACKET);
+    request.mutable_download_request()->set_path(this->item.remote_path);
+    request.mutable_upload_request()->set_path("");
+    request.mutable_upload_request()->set_overwrite(false);
+    request.mutable_packet_request()->set_dummy(1);
+    client.send_request(request);
+    Reply reply;
+    if(client.read_reply(reply) == 0) {
+        if(reply.status() == Status::STATUS_PATH_ALREADY_EXISTS){
+
+            LOG_DEBUG << "reply.file_list().item_size():"
+                      << reply.file_list().item_size();
+            for(int i = 0; i < reply.file_list().item_size(); ++i) {
+                FileList::Item item =  reply.file_list().item(i);
+                this->item.size = item.size();
+                this->item.offset = 0;
+                this->item.path = item.name();
+                //TODO MD5 needed
+            }
+            return 0;
+        }
+        else if(reply.status() == Status::STATUS_PATH_NOT_FOUND) {
+            this->item.stream_status = DOWNLOAD_FAILED;
+            return -1;
+        }
+    }
+
+    return -1;
 
 }
 Request secft_cell::get_packet()
@@ -198,7 +381,7 @@ Request secft_cell::get_packet()
     request.mutable_upload_request()->set_overwrite(true);
     infile.seekg(this->item.offset,ios_base::beg);
     infile.read (memblock, BUFFER_SIZE);
-    size_t data_size = BUFFER_SIZE;
+    ssize_t data_size = BUFFER_SIZE;
     if (!infile){
         data_size = infile.gcount();
     }

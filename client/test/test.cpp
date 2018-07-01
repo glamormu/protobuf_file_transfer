@@ -139,6 +139,20 @@ int main(int argc, char **argv)
     }
     //Test case: cancel upload without parameters
 
+    //Test cases: download normal file download_test1 and download_test2
+    test[SEC_STREAM_TYPE] = START_DOWNLOAD;
+    id = secft_start_stream("download_test1", test);
+    if(id == -1) {
+        std::cerr << "add task failed\n";
+    }
+
+    id = secft_start_stream("download_test2", test);
+    if(id == -1) {
+        std::cerr << "add task failed\n";
+    }
+
+
+
 
 	//上传文件测试(单文件)
 
@@ -172,6 +186,8 @@ int main(int argc, char **argv)
 //    secft_stop_stream(path, params, user_callback);
 
     //todo 文件夹的上传下载
-    sleep(5);
+    while (1) {
+        ;
+    }
 	return 0;
 }

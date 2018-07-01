@@ -19,6 +19,8 @@
 #include <fstream>
 #include <libgen.h>
 #include <filesystem>
+#include <chrono>
+#include <fstream>
 using namespace secft::proto::file_transfer_packet;
 using namespace boost::asio;
 using namespace boost::posix_time;
@@ -44,8 +46,9 @@ bool auth_username_token(string username, string token);
  *
  */
 struct talk_to_client : public boost::enable_shared_from_this<talk_to_client>
-, boost::noncopyable{
+        , boost::noncopyable{
     typedef talk_to_client self_type;
+    typedef boost::system::error_code error_code;
     talk_to_client() : sock_(service) {
         memset(data_buffer, 0, max_msg);
     }
@@ -81,6 +84,7 @@ struct talk_to_client : public boost::enable_shared_from_this<talk_to_client>
 private:
     void read_request() {
         char buff[4] = {0};
+        already_read_ = 0;
         if ( sock_.available()){
             int acc_read = sock_.receive(buffer(buff, 4), ip::tcp::socket::message_peek );
             LOG_DEBUG << "acc_read is " << acc_read << std::endl;
@@ -150,8 +154,87 @@ private:
             stop();
         }
     }
+    ssize_t get_packet(string file_path, Packet &packet){
+
+    }
+    void send_download_packet(){
+        string path =client_req.download_request().path();
+        std::filesystem::path p(path);
+        string root_path = "./";
+        string file_path = root_path + path;
+        Reply reply;
+        Packet packet;
+        ssize_t offset = 0;
+        ssize_t file_size = std::filesystem::file_size(p);
+
+        std::ifstream infile;
+        infile.open(file_path, std::ios::in|std::ios::binary);
+        if(!infile.is_open()){
+            reply.set_status(STATUS_FILE_OPEN_ERROR);
+            send_reply(reply);
+
+        }
+        else {
+            while(offset < file_size){
+                reply.set_status(STATUS_SUCCESS);
+                ssize_t acc_read = get_packet(file_path, packet);
+                if(acc_read > 0) {
+                    offset += acc_read;
+                    reply.set_allocated_packet(&packet);
+                    send_reply(reply);
+                }
+                else {
+                    reply.set_status(STATUS_FILE_READ_ERROR);
+                    send_reply(reply);
+                    break;
+                }
+            }
+        }
+        stop();
+    }
+    void check_download()
+    {
+        string path =client_req.download_request().path();
+        std::filesystem::path p(path);
+        LOG_DEBUG << path;
+        string root_path = "./";
+        string file_path = root_path + path;
+        Reply reply;
+        LOG_DEBUG << "Try to find " << client_req.download_request().path();
+        if(std::filesystem::exists(file_path)){
+            reply.set_status(STATUS_PATH_ALREADY_EXISTS);
+            if(std::filesystem::is_directory(file_path)){
+                //TODO FIX IT
+                reply.set_status(STATUS_PATH_NOT_FOUND);
+            }
+            else {
+                FileList *file_list = new FileList();
+                FileList::Item *item = file_list->add_item();
+                item->set_name(path);
+                item->set_is_directory(false);
+                item->set_size(std::filesystem::file_size(p));
+                std::filesystem::file_time_type ftime
+                        = std::filesystem::last_write_time(path);
+                //wtime.clock.time_point
+                item->set_modification_time(ftime.time_since_epoch().count());
+                reply.set_allocated_file_list(file_list);
+            }
+            send_reply(reply);
+        }
+        else {
+            reply.set_status(STATUS_PATH_NOT_FOUND);
+            send_reply(reply);
+            stop();
+        }
+    }
     void do_download(){
-        std::cout << client_req.download_request().path();
+        int packet_flag = client_req.packet().flags();
+        if(packet_flag == Packet::Flags::Packet_Flags_FLAG_FIRST_PACKET){
+            check_download();
+        }
+        else if(packet_flag == Packet::Flags::Packet_Flags_FLAG_PACKET){
+            send_download_packet();
+        }
     }
     void do_upload() {
         std::filesystem::path p(client_req.upload_request().path());
@@ -159,35 +242,69 @@ private:
         bool overwrite = client_req.upload_request().overwrite();
         LOG_DEBUG << "upload path is " << path
                   << " and overwrite is " << overwrite;
+        Reply reply;
         //save file
         string root_path = "./";
         string file_path = root_path + path;
         std::ofstream outfile;
-        outfile.open(file_path, std::ios::out|std::ios::binary|std::ios::app);
-        if(!outfile.is_open()){
-            std::cerr << file_path <<"open failed";
-            return;
-        }
-        outfile.write(client_req.packet().data().c_str(), client_req.packet().data().size());
-        outfile.close();
-        //uint64_t file_size = client_req.packet().file_size();
         int packet_flag = client_req.packet().flags();
         switch (packet_flag) {
         case Packet::Flags::Packet_Flags_FLAG_FIRST_PACKET:
             std::cout << "Start recving packets";
+            if(overwrite){
+                outfile.open(file_path, std::ios::out|std::ios::binary);
+            }
+            else{
+                if(std::filesystem::exists(file_path)){
+                    reply.set_status(Status::STATUS_PATH_ALREADY_EXISTS);
+                    send_reply(reply);
+                    stop();
+                    return;
+                }
+            }
             break;
         case Packet::Flags::Packet_Flags_FLAG_PACKET:
-            std::cout << "Recving packets";;
+            LOG_DEBUG << "Recving packets";;
+            outfile.open(file_path, std::ios::out|std::ios::binary|std::ios::app);
             break;
         case Packet::Flags::Packet_Flags_FLAG_LAST_PACKET:
-            std::cout << "Last packet";
-            stop();
+            LOG_DEBUG << "Last packet";
+            outfile.open(file_path, std::ios::out|std::ios::binary|std::ios::app);
             break;
         default:
             break;
         }
 
-
+        if(!outfile.is_open()){
+            LOG_ERROR << file_path <<"open failed";
+            return;
+        }
+        outfile.write(client_req.packet().data().c_str(), client_req.packet().data().size());
+        outfile.close();
+        reply.set_status(Status::STATUS_SUCCESS);
+        send_reply(reply);
+        if(packet_flag == Packet::Flags::Packet_Flags_FLAG_LAST_PACKET) {
+            stop();
+        }
+        //uint64_t file_size = client_req.packet().file_size();
+    }
+    bool send_reply(Reply reply){
+        LOG_DEBUG << "reply status: " << reply.status();
+        int siz = reply.ByteSize()+4;
+        char *pkt = new char [siz];
+        google::protobuf::io::ArrayOutputStream aos(pkt,siz);
+        google::protobuf::io::CodedOutputStream *coded_output = new google::protobuf::io::CodedOutputStream(&aos);
+        coded_output->WriteVarint32(reply.ByteSize());
+        reply.SerializeToCodedStream(coded_output);
+        error_code err;
+        sock_.write_some(buffer(pkt, siz), err);
+        if(err) {
+            delete[] pkt;
+            return false;
+        }
+        //todo: read response
+        delete[] pkt;
+        return true;
     }
 private:
     ip::tcp::socket sock_;
@@ -292,9 +409,9 @@ bool auth_username_token(string username, string token){
     return find_iter->second == token;
 }
 int secft_server_set_property(const char* prop, const char* value){
-//"SECFT_SERVER_ADD_AUTH"
-//"SECFT_SERVER_RM_AUTH"
-//"SECFT_SERVER_LOG"
+    //"SECFT_SERVER_ADD_AUTH"
+    //"SECFT_SERVER_RM_AUTH"
+    //"SECFT_SERVER_LOG"
     if(prop == nullptr || value == nullptr) {
         return -1;
     }

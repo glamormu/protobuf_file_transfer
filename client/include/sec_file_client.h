@@ -3,28 +3,28 @@
 #include "config.h"
 #include "file_transfer.pb.h"
 #include "sec_asio_common.h"
-using namespace secft::proto::file_transfer_packet;
-class sec_file_client : public boost::enable_shared_from_this<sec_file_client>
-                  , boost::noncopyable {
-    typedef sec_file_client self_type;
-    sec_file_client();
-    bool _start(ip::tcp::endpoint ep);
-public:
-    typedef boost::system::error_code error_code;
-    typedef boost::shared_ptr<sec_file_client> ptr;
 
-    static ptr start(ip::tcp::endpoint ep) {
-        ptr new_(new sec_file_client());
-        if(!new_->_start(ep)) {
-            return nullptr;
+const int max_msg_ = 4096*2;
+using namespace secft::proto::file_transfer_packet;
+struct sec_file_client{
+    typedef boost::system::error_code error_code;
+    sec_file_client();
+    bool connect(ip::tcp::endpoint ep) {
+        error_code err;
+        sock_.connect(ep, err);
+        if(err) {
+            return false;
         }
-        return new_;
+        return true;
     }
     void stop();
     bool send_request(Request request);
-
+    int read_reply(Reply & reply);
 private:
     ip::tcp::socket sock_;
-    ip::tcp::endpoint ep_;
+    ip::tcp::endpoint epi_;
+    char buffer_[max_msg_];
+    int  alread_read_;
+    bool started_;
 };
 #endif

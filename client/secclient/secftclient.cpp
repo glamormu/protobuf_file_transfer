@@ -108,10 +108,9 @@ const char *secft_err_msg(void)
 {
     return errmsg.c_str();
 }
+int check_upload_stream(const char* path,
+                        map<string, sec_variant> params, stream_item & item){
 
-//todo return task id
-int secft_start_stream(const char *path, map<string, sec_variant> params)
-{
     //generate stream item
     int file_descript = open(path, O_RDONLY);
     if(file_descript < 0) {
@@ -125,16 +124,6 @@ int secft_start_stream(const char *path, map<string, sec_variant> params)
         close(file_descript);
         return -1;
     }
-    //check params
-    auto it_find = params.find(SEC_STREAM_TYPE);
-    if(it_find != params.end()) {
-        LOG_DEBUG << "get " << SEC_STREAM_TYPE;
-    }
-    else {
-        std::cerr << "no stream type";
-        return -1;
-    }
-    stream_item item;
     item.path = path;
     if(S_ISDIR(statbuf.st_mode)) {
         LOG_DEBUG << path << " is a Dir";
@@ -152,9 +141,52 @@ int secft_start_stream(const char *path, map<string, sec_variant> params)
         item.offset = 0;
         item.stream_status = std::get<int>(params[SEC_STREAM_TYPE]);
     }
+    close(file_descript);
+    return 0;
+}
+int check_download_stream(const char* path,
+                          map<string, sec_variant> params, stream_item & item){
+    item.remote_path = path;
+    item.offset = 0;
+    item.size = -1;
+    item.stream_status = std::get<int>(params[SEC_STREAM_TYPE]);
+    //todo item.path
+    item.path = "./";
+    return 0;
+
+}
+//todo return task id
+int secft_start_stream(const char *path, map<string, sec_variant> params)
+{
+    //check params
+    auto it_find = params.find(SEC_STREAM_TYPE);
+    if(it_find != params.end()) {
+        LOG_DEBUG << "get " << SEC_STREAM_TYPE;
+    }
+    else {
+        LOG_ERROR << "no stream type";
+        return -1;
+    }
+    stream_item item;
+    int check_res = 0;
+    switch (std::get<int>(params[SEC_STREAM_TYPE])) {
+    case START_UPLOAD:
+        check_res = check_upload_stream(path, params, item);
+        if(check_res != 0) {
+            return -1;
+        }
+        break;
+    case START_DOWNLOAD:
+        check_res = check_download_stream(path, params, item);
+        if(check_res != 0) {
+            return -1;
+        }
+        break;
+    default:
+        break;
+    }
     map<string, sec_variant> config;
     item.config = config;
-    close(file_descript);
     return sec_scheduler::initance()->add_task(item);
 }
 

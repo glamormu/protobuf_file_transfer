@@ -17,9 +17,10 @@ struct stream_item
 {
   int stream_id;
   string path;
+  string remote_path;
   unsigned char md5[MD5_DIGEST_LENGTH];
-  size_t offset;
-  size_t size;
+  ssize_t offset;
+  ssize_t size;
 //  uint8_t stream_type;
   uint8_t stream_status;
   vector < stream_item > children;
@@ -35,7 +36,11 @@ struct secft_cell
 private:
     void _upload();
     void _download();
+    void create_download_file();
     Request get_packet();
+    int check_remote_file(sec_file_client& client);
+    void notify_download_failed(string msg);
+    bool request_packet();
     //void pause();
 };
 
