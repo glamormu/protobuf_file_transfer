@@ -1,0 +1,5 @@
+Memory usage per process
+{% for line in memory %}
+<br/>
+{{ line.decode(encoding='utf-8', errors='strict')}}
+{% endfor %}
