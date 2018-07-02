@@ -33,3 +33,8 @@ HEADERS += \
     config.h \
     requestmaneger.h \
     client_backend.h
+
+
+DEFINES += QPM_INIT\\(E\\)=\"E.addImportPath(QStringLiteral(\\\"qrc:/\\\"));\"
+
+include(material/material.pri)

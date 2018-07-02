@@ -1,0 +1,3 @@
+[submodule "zuolin_client/material"]
+	path = zuolin_client/material
+	url = git@github.com:papyros/qml-material.git

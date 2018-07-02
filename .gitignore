@@ -5,7 +5,7 @@
 # general
 build/*
 doc/*
-
+build*/
 # c/c++
 *.out
 *.o
