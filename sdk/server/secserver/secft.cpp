@@ -155,7 +155,8 @@ private:
         }
     }
     ssize_t get_packet(string file_path, Packet &packet){
-
+        //TODO: FINISH IT
+        return 0;
     }
     void send_download_packet(){
         string path =client_req.download_request().path();

@@ -252,7 +252,7 @@ void secft_cell::_download()
         default:
             break;
         }
-        continue_download = request_packet();
+        continue_download = request_packet(client);
     }
 }
 bool secft_cell::request_packet(sec_file_client& client) {
@@ -288,13 +288,15 @@ bool secft_cell::request_packet(sec_file_client& client) {
     }
 
     if(!outfile.is_open()){
-        LOG_ERROR << item.file_path <<"open failed";
-        return;
+        LOG_ERROR << item.path <<"open failed";
+        return false;
     }
     outfile.write(reply.packet().data().c_str(), reply.packet().data().size());
     outfile.close();
     item.offset += reply.packet().data().size();
+
     //write file
+    return true;
 }
 void secft_cell::notify_download_failed(string msg) {
     map<string, sec_variant> process_callback_data;

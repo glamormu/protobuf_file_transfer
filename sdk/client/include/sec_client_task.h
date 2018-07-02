@@ -40,7 +40,7 @@ private:
     Request get_packet();
     int check_remote_file(sec_file_client& client);
     void notify_download_failed(string msg);
-    bool request_packet();
+    bool request_packet(sec_file_client& client);
     //void pause();
 };
 
